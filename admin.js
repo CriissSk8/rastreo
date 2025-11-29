@@ -28,10 +28,33 @@ function logout() {
     document.getElementById('errorMsg').classList.add('hidden');
 }
 
-// Cargar visitantes desde localStorage
-function loadVisitors() {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    allVisitors = stored ? JSON.parse(stored) : [];
+// Cargar visitantes desde localStorage O desde servidor
+async function loadVisitors() {
+    // Intentar cargar desde JSONBin si está configurado
+    if (typeof CONFIG !== 'undefined' && CONFIG.STORAGE_METHOD === 'jsonbin' && CONFIG.JSONBIN_API_KEY && CONFIG.JSONBIN_BIN_ID) {
+        try {
+            const response = await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.JSONBIN_BIN_ID}/latest`, {
+                headers: {
+                    'X-Master-Key': CONFIG.JSONBIN_API_KEY
+                }
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                allVisitors = result.record.visitors || [];
+                console.log('✅ Datos cargados desde JSONBin');
+            }
+        } catch (error) {
+            console.log('Error cargando desde JSONBin:', error);
+        }
+    }
+    
+    // Si no hay datos del servidor, cargar desde localStorage
+    if (allVisitors.length === 0) {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        allVisitors = stored ? JSON.parse(stored) : [];
+    }
+    
     filteredVisitors = [...allVisitors];
     
     // Ordenar por fecha más reciente

